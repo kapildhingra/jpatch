@@ -3,50 +3,49 @@ package com.virtualparadigm.patch.processor;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.StringReader;
-import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.xml.bind.Marshaller;
+import javax.xml.bind.Unmarshaller;
+
 import org.apache.commons.io.FileUtils;
-import org.dom4j.Document;
-import org.dom4j.DocumentHelper;
-import org.dom4j.Element;
-import org.dom4j.io.OutputFormat;
-import org.dom4j.io.SAXReader;
-import org.dom4j.io.XMLWriter;
+import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.virtualparadigm.patch.util.ZipUtils;
+import com.virtualparadigm.patch.xml.AddedDirectories;
+import com.virtualparadigm.patch.xml.AddedFiles;
+import com.virtualparadigm.patch.xml.Patch;
+import com.virtualparadigm.patch.xml.RemovedDirectories;
+import com.virtualparadigm.patch.xml.RemovedFiles;
+import com.virtualparadigm.patch.xml.Resource;
+import com.virtualparadigm.patch.xml.TimestampedResource;
+import com.virtualparadigm.patch.xml.UpdatedFiles;
 
 public class JPatchManager
 {
 	private static Logger logger = LoggerFactory.getLogger(JPatchManager.class);
 	
-	private static final String ELEMENT_PATCH = "patch";
-	private static final String ELEMENT_ADDED_FILES = "addedFiles";
-	private static final String ELEMENT_UPDATED_FILES = "udpatedFiles";
-	private static final String ELEMENT_REMOVED_FILES = "removedFiles";
-	private static final String ELEMENT_ADDED_DIRECTORIES = "addedDirectories";
-	private static final String ELEMENT_REMOVED_DIRECTORIES = "removedDirectories";
-	private static final String ELEMENT_DIRECTORY = "directory";
-	private static final String ELEMENT_FILE = "file";
-	private static final String ATTRIBUTE_PATH = "path";
-	private static final String ATTRIBUTE_EXPECTED_LAST_MODIFIED = "expectedLastModified";
-	
     private static final String PATCH_FILE_NAME = "patch.xml";
     private static final String PATCH_FILES_DIR_NAME = "patch-files";
-    
     private static final String FILE_LIST_KEY = "fileList";
     private static final String DIR_LIST_KEY = "directoryList";
+    
+    private static Marshaller patchJAXBMarshaller = null;
+    private static Unmarshaller patchJAXBUnmarshaller = null;
+
+    static
+    {
+    	patchJAXBMarshaller = JAXBFactory.createJAXBPatchMarshaller();
+    	patchJAXBUnmarshaller = JAXBFactory.createJAXBPatchUnmarshaller();
+    }    
 	
 	
 	public JPatchManager()
@@ -60,15 +59,9 @@ public class JPatchManager
 		
 	}
 
-	public Document makePatch(File oldStateRootDir, File newStateRootDir, File outputDir, String archiveFileName)// throws IOException
+	public Patch makePatch(File oldStateRootDir, File newStateRootDir, File outputDir, String archiveFileName)// throws IOException
 	{
-		Document patchDocument = DocumentHelper.createDocument();
-		Element patchElement = patchDocument.addElement(ELEMENT_PATCH);
-		patchElement.addElement(ELEMENT_ADDED_FILES);
-		patchElement.addElement(ELEMENT_UPDATED_FILES);
-		patchElement.addElement(ELEMENT_REMOVED_FILES);
-		patchElement.addElement(ELEMENT_ADDED_DIRECTORIES);
-		patchElement.addElement(ELEMENT_REMOVED_DIRECTORIES);
+		Patch patch = new Patch();
 		
 		try
 		{
@@ -77,8 +70,8 @@ public class JPatchManager
 			File patchFile = new File(outputDir.getAbsolutePath() + "/" + JPatchManager.PATCH_FILE_NAME);
 			File patchFilesDir = new File(outputDir.getAbsolutePath() + "/" + JPatchManager.PATCH_FILES_DIR_NAME);
 			
-			patchDocument = this.createDirectoryPatch(oldStateRootDir, "/", newStateRootDir, "/", patchFilesDir, patchDocument);
-			JPatchManager.writeDocumentToFile(patchDocument, patchFile);
+			patch = this.createDirectoryPatch(oldStateRootDir, "/", newStateRootDir, "/", patchFilesDir, patch);
+			JPatchManager.patchJAXBMarshaller.marshal(patch, patchFile);
 			
 			if(archiveFileName != null && archiveFileName.length() > 0)
 			{
@@ -87,17 +80,17 @@ public class JPatchManager
 				FileUtils.deleteQuietly(patchFilesDir);
 			}
 		}
-		catch(IOException ioe)
+		catch(Exception e)
 		{
-			ioe.printStackTrace();
+			e.printStackTrace();
 		}
-		return patchDocument;
+		return patch;
 	}
 	
 	
-	private Document createDirectoryPatch(File oldStateRootDir, String oldStateRelDirPath, File newStateRootDir, String newStateRelDirPath, File patchFilesRootDir, Document patchDocument)
+	private Patch createDirectoryPatch(File oldStateRootDir, String oldStateRelDirPath, File newStateRootDir, String newStateRelDirPath, File patchFilesRootDir, Patch patch)
 	{
-		if(newStateRelDirPath != null && patchDocument != null)
+		if(newStateRelDirPath != null && patch != null)
 		{
             List<File> addedFileList = new ArrayList<File>();
             List<FileTuple> updatedFileTupleList = new ArrayList<FileTuple>();
@@ -146,7 +139,7 @@ public class JPatchManager
                                     newStateRootDir, 
                                     newStateRelDirPath + File.separator + newStateSubDir.getName(), 
                                     patchFilesRootDir, 
-                                    patchDocument);
+                                    patch);
                         }
                     }
 				}
@@ -256,7 +249,7 @@ public class JPatchManager
                                         newStateRootDir, 
                                         newStateRelDirPath + File.separator + newStateSubDirList.get(newStateSubDirIndex).getName(), 
                                         patchFilesRootDir, 
-                                        patchDocument);
+                                        patch);
                             }
                             else
                             {
@@ -266,7 +259,7 @@ public class JPatchManager
                                         newStateRootDir, 
                                         newStateRelDirPath + File.separator + newStateSubDirList.get(newStateSubDirIndex).getName(), 
                                         patchFilesRootDir, 
-                                        patchDocument);
+                                        patch);
                             
                                 //need this? YES: b/c every thing left will be in the removed!
                                 oldStateDirMap.remove(newStateSubDirList.get(newStateSubDirIndex).getName());
@@ -282,59 +275,43 @@ public class JPatchManager
 			
             for(File addedDir : addedDirList)
             {
-            	JPatchManager.addPathElement(
-            			patchDocument, 
-            			ELEMENT_PATCH + "/" + ELEMENT_ADDED_DIRECTORIES, 
-            			ELEMENT_DIRECTORY, 
-            			ATTRIBUTE_PATH, 
-            			JPatchManager.getRelativePath(addedDir.getAbsolutePath(), patchFilesRootDir.getAbsolutePath()) + "/");
+            	JPatchManager.addAddedDirectory(
+            			JPatchManager.getRelativePath(addedDir.getAbsolutePath(), patchFilesRootDir.getAbsolutePath()) + "/", 
+            			patch);
             }
 			
             for(File removedDir : removedDirList)
             {
-            	JPatchManager.addPathElement(
-            			patchDocument, 
-            			ELEMENT_PATCH + "/" + ELEMENT_REMOVED_DIRECTORIES, 
-            			ELEMENT_DIRECTORY, 
-            			ATTRIBUTE_PATH, 
+            	JPatchManager.addRemovedDirectory(
             			JPatchManager.getRelativePath(removedDir.getAbsolutePath(), oldStateRootDir.getAbsolutePath()) + "/", 
-            			removedDir.lastModified());
+            			removedDir.lastModified(), 
+            			patch);
             }
 			
             for(File addedFile : addedFileList)
             {
-            	JPatchManager.addPathElement(
-            			patchDocument, 
-            			ELEMENT_PATCH + "/" + ELEMENT_ADDED_FILES, 
-            			ELEMENT_FILE, 
-            			ATTRIBUTE_PATH, 
-            			JPatchManager.getRelativePath(addedFile.getAbsolutePath(), patchFilesRootDir.getAbsolutePath()));
+            	JPatchManager.addAddedFile(
+            			JPatchManager.getRelativePath(addedFile.getAbsolutePath(), patchFilesRootDir.getAbsolutePath()) + "/", 
+            			patch);
             }
 			
             for(FileTuple updatedFileTuple : updatedFileTupleList)
             {
-            	JPatchManager.addPathElement(
-            			patchDocument, 
-            			ELEMENT_PATCH + "/" + ELEMENT_UPDATED_FILES, 
-            			ELEMENT_FILE, 
-            			ATTRIBUTE_PATH, 
-            			JPatchManager.getRelativePath(updatedFileTuple.getFile().getAbsolutePath(), patchFilesRootDir.getAbsolutePath()), 
-            			updatedFileTuple.getExpectedLastModified());
+            	JPatchManager.addUpdatedFile(
+            			JPatchManager.getRelativePath(updatedFileTuple.getFile().getAbsolutePath(), patchFilesRootDir.getAbsolutePath()) + "/", 
+            			updatedFileTuple.getExpectedLastModified(), 
+            			patch);
             }
             
             for(File removedFile : removedFileList)
             {
-            	JPatchManager.addPathElement(
-            			patchDocument, 
-            			ELEMENT_PATCH + "/" + ELEMENT_REMOVED_FILES, 
-            			ELEMENT_FILE, 
-            			ATTRIBUTE_PATH, 
-            			JPatchManager.getRelativePath(removedFile.getAbsolutePath(), oldStateRootDir.getAbsolutePath()), 
-            			removedFile.lastModified());
+            	JPatchManager.addRemovedFile(
+            			JPatchManager.getRelativePath(removedFile.getAbsolutePath(), oldStateRootDir.getAbsolutePath()) + "/", 
+            			removedFile.lastModified(), 
+            			patch);
             }
-            
 		}
-		return patchDocument;
+		return patch;
 	}
 
 	public void executePatch(File archiveFile, File tempDir, File targetRootDir, Matcher excludeMatcher, File rollbackRootDir, boolean insertsOnly, boolean forceUpdates)
@@ -392,13 +369,9 @@ public class JPatchManager
 				excludeMatcher = Pattern.compile("a^").matcher("");
 			}
 			
-			SAXReader saxReader = new SAXReader();
-			Document patchdocument = 
-					saxReader.read(
-							new StringReader(
-									FileUtils.readFileToString(patchFile)));
+			Patch patch = (Patch)JPatchManager.patchJAXBUnmarshaller.unmarshal(patchFile);
 
-			if(patchdocument != null)
+			if(patch != null)
 			{
 	            List<File> addedRollbackFileList = new ArrayList<File>();
 	            List<File> updatedRollbackFileList = new ArrayList<File>();
@@ -406,7 +379,6 @@ public class JPatchManager
 	            List<File> removedRollbackFileList = new ArrayList<File>();
 	            List<File> removedRollbackDirList = new ArrayList<File>();
 				
-				Element element = null;
 				File targetFileOrDir = null;
 				File patchedFileOrDir = null;
 				String targetFileOrDirPath = null;
@@ -418,13 +390,11 @@ public class JPatchManager
 					// ==================================================
 					
 					//delete removed directories
-					Element removedDirectoriesElement = (Element)patchdocument.selectSingleNode(ELEMENT_PATCH + "/" + ELEMENT_REMOVED_DIRECTORIES);
-					if(removedDirectoriesElement != null)
+					if(patch.getRemovedDirectories() != null)
 					{
-		                for(Iterator<Element> elementIterator=removedDirectoriesElement.elementIterator(); elementIterator.hasNext(); )
-		                {
-		                    element = elementIterator.next();
-		                    targetFileOrDirPath = convertPathToForwardSlash(targetRootDir.getAbsolutePath()) + "/" + element.attributeValue(ATTRIBUTE_PATH);
+						for(TimestampedResource removedDirectory : patch.getRemovedDirectories().getDirectories())
+						{
+		                    targetFileOrDirPath = convertPathToForwardSlash(targetRootDir.getAbsolutePath()) + "/" + removedDirectory.getPath();
 		                    if(targetFileOrDirPath != null && targetFileOrDirPath.length() > 0)
 		                    {
 			                    excludeMatcher.reset(targetFileOrDirPath);
@@ -438,24 +408,23 @@ public class JPatchManager
 					                    	//copy removed directory to rollback location
 					                    	FileUtils.copyDirectoryToDirectory(
 					                    			targetFileOrDir, 
-					                    			new File(rollbackPatchFilesDir.getAbsolutePath() + "/" + element.attributeValue(ATTRIBUTE_PATH)).getParentFile());
+					                    			new File(rollbackPatchFilesDir.getAbsolutePath() + "/" + removedDirectory.getPath()).getParentFile());
 					                    	addedRollbackDirList.add(targetFileOrDir);
 					                    }
 					                    FileUtils.deleteDirectory(targetFileOrDir);
 				                    }
 			                    }
 		                    }
-		                }
+						}
 					}
 					
+					
 					//delete removed files
-					Element removedFilesElement = (Element)patchdocument.selectSingleNode(ELEMENT_PATCH + "/" + ELEMENT_REMOVED_FILES);
-					if(removedFilesElement != null)
+					if(patch.getRemovedFiles() != null)
 					{
-		                for(Iterator<Element> elementIterator=removedFilesElement.elementIterator(); elementIterator.hasNext(); )
-		                {
-		                    element = elementIterator.next();
-		                    targetFileOrDirPath = convertPathToForwardSlash(targetRootDir.getAbsolutePath()) + "/" + element.attributeValue(ATTRIBUTE_PATH);
+						for(TimestampedResource removedFile : patch.getRemovedFiles().getFiles())
+						{
+		                    targetFileOrDirPath = convertPathToForwardSlash(targetRootDir.getAbsolutePath()) + "/" + removedFile.getPath();
 		                    if(targetFileOrDirPath != null && targetFileOrDirPath.length() > 0)
 		                    {
 			                    excludeMatcher.reset(targetFileOrDirPath);
@@ -464,14 +433,14 @@ public class JPatchManager
 				                    targetFileOrDir = new File(targetFileOrDirPath);
 				                    if(targetFileOrDir.exists())
 				                    {
-				                    	if(forceUpdates || targetFileOrDir.lastModified() == Long.valueOf(element.attributeValue(ATTRIBUTE_EXPECTED_LAST_MODIFIED)))
+				                    	if(forceUpdates || targetFileOrDir.lastModified() == removedFile.getExpectedLastModified())
 				                    	{
 						                    if(rollbackPatchFilesDir != null)
 						                    {
 						                    	//copy removed directory to rollback location
 						                    	FileUtils.copyFile(
 						                    			targetFileOrDir, 
-						                    			new File(rollbackPatchFilesDir.getAbsolutePath() + "/" + element.attributeValue(ATTRIBUTE_PATH)), 
+						                    			new File(rollbackPatchFilesDir.getAbsolutePath() + "/" + removedFile.getPath()), 
 						                    			true);
 						                    	
 						                    	addedRollbackFileList.add(targetFileOrDir);
@@ -481,35 +450,32 @@ public class JPatchManager
 			                    	}				                    
 			                    }
 		                    }
-		                }
+						}
 					}
 					
-					
 					//copy updated files
-					Element updatedFilesElement = (Element)patchdocument.selectSingleNode(ELEMENT_PATCH + "/" + ELEMENT_UPDATED_FILES);
-					if(updatedFilesElement != null)
+					if(patch.getUpdatedFiles() != null)
 					{
-		                for(Iterator<Element> elementIterator=updatedFilesElement.elementIterator(); elementIterator.hasNext(); )
-		                {
-		                    element = elementIterator.next();
-		                    targetFileOrDirPath = convertPathToForwardSlash(targetRootDir.getAbsolutePath()) + "/" + element.attributeValue(ATTRIBUTE_PATH);
+						for(TimestampedResource updatedFile : patch.getUpdatedFiles().getFiles())
+						{
+		                    targetFileOrDirPath = convertPathToForwardSlash(targetRootDir.getAbsolutePath()) + "/" + updatedFile.getPath();
 		                    if(targetFileOrDirPath != null && targetFileOrDirPath.length() > 0)
 		                    {
 			                    excludeMatcher.reset(targetFileOrDirPath);
 			                    if(!excludeMatcher.matches())
 			                    {
 				                    targetFileOrDir = new File(targetFileOrDirPath);
-									patchedFileOrDir = new File(convertPathToForwardSlash(patchFilesDir.getAbsolutePath()) + "/" + element.attributeValue(ATTRIBUTE_PATH));
+									patchedFileOrDir = new File(convertPathToForwardSlash(patchFilesDir.getAbsolutePath()) + "/" + updatedFile.getPath());
 				                    if(targetFileOrDir.exists())
 				                    {
-				                    	if(forceUpdates || targetFileOrDir.lastModified() == Long.valueOf(element.attributeValue(ATTRIBUTE_EXPECTED_LAST_MODIFIED)))
+				                    	if(forceUpdates || targetFileOrDir.lastModified() == Long.valueOf(updatedFile.getExpectedLastModified()))
 				                    	{
 				    	                    if(rollbackPatchFilesDir != null)
 				    	                    {
 				    	                    	//copy removed directory to rollback location
 				    	                    	FileUtils.copyFile(
 				    	                    			targetFileOrDir, 
-				    	                    			new File(rollbackPatchFilesDir.getAbsolutePath() + "/" + element.attributeValue(ATTRIBUTE_PATH)), 
+				    	                    			new File(rollbackPatchFilesDir.getAbsolutePath() + "/" + updatedFile.getPath()), 
 				    	                    			true);
 				    	                    	
 				    	                    	//this should be an updaterollback file list
@@ -535,8 +501,9 @@ public class JPatchManager
 					                    		true);
 				                    }
 			                    }
-		                    }
-		                }
+		                    }							
+							
+						}
 					}
 				}
 				
@@ -546,13 +513,11 @@ public class JPatchManager
 				// ==================================================
 				
 				//create new directories
-				Element addedDirectoriesElement = (Element)patchdocument.selectSingleNode(ELEMENT_PATCH + "/" + ELEMENT_ADDED_DIRECTORIES);
-				if(addedDirectoriesElement != null)
+				if(patch.getAddedDirectories() != null)
 				{
-	                for(Iterator<Element> elementIterator=addedDirectoriesElement.elementIterator(); elementIterator.hasNext(); )
-	                {
-	                    element = elementIterator.next();
-	                    targetFileOrDirPath = convertPathToForwardSlash(targetRootDir.getAbsolutePath()) + "/" + element.attributeValue(ATTRIBUTE_PATH);
+					for(Resource addedDirectory : patch.getAddedDirectories().getDirectories())
+					{
+	                    targetFileOrDirPath = convertPathToForwardSlash(targetRootDir.getAbsolutePath()) + "/" + addedDirectory.getPath();
 	                    if(targetFileOrDirPath != null && targetFileOrDirPath.length() > 0)
 	                    {
 		                    excludeMatcher.reset(targetFileOrDirPath);
@@ -573,7 +538,7 @@ public class JPatchManager
 			    	                    	//copy existing file to rollback location
 					                    	FileUtils.copyDirectoryToDirectory(
 					                    			targetFileOrDir, 
-					                    			new File(rollbackPatchFilesDir.getAbsolutePath() + "/" + element.attributeValue(ATTRIBUTE_PATH)).getParentFile());
+					                    			new File(rollbackPatchFilesDir.getAbsolutePath() + "/" + addedDirectory.getPath()).getParentFile());
 			    	                    	removedRollbackDirList.add(targetFileOrDir);
 			    	                    }
 					                    FileUtils.deleteQuietly(targetFileOrDir);
@@ -590,19 +555,15 @@ public class JPatchManager
 			                    }
 		                    }
 	                    }
-	                }
+					}
 				}
 				
 				//create added files
-				Element addedFilesElement = (Element)patchdocument.selectSingleNode(ELEMENT_PATCH + "/" + ELEMENT_ADDED_FILES);
-				if(addedFilesElement != null)
+				if(patch.getAddedFiles() != null)
 				{
-	                for(Iterator<Element> elementIterator=addedFilesElement.elementIterator(); elementIterator.hasNext(); )
-	                {
-	                    element = elementIterator.next();
-	                    
-	                    
-	                    targetFileOrDirPath = convertPathToForwardSlash(targetRootDir.getAbsolutePath()) + "/" + element.attributeValue(ATTRIBUTE_PATH);
+					for(Resource addedFile : patch.getAddedFiles().getFiles())
+					{
+	                    targetFileOrDirPath = convertPathToForwardSlash(targetRootDir.getAbsolutePath()) + "/" + addedFile.getPath();
 	                    if(targetFileOrDirPath != null && targetFileOrDirPath.length() > 0)
 	                    {
 		                    excludeMatcher.reset(targetFileOrDirPath);
@@ -610,7 +571,7 @@ public class JPatchManager
 		                    {
 			                    targetFileOrDir = new File(targetFileOrDirPath);
 			                    
-								patchedFileOrDir = new File(convertPathToForwardSlash(patchFilesDir.getAbsolutePath()) + "/" + element.attributeValue(ATTRIBUTE_PATH));
+								patchedFileOrDir = new File(convertPathToForwardSlash(patchFilesDir.getAbsolutePath()) + "/" + addedFile.getPath());
 			                    if(targetFileOrDir.exists())
 			                    {
 			                    	if(forceUpdates)
@@ -620,7 +581,7 @@ public class JPatchManager
 			    	                    	//copy existing file to rollback location
 			    	                    	FileUtils.copyFile(
 			    	                    			targetFileOrDir, 
-			    	                    			new File(rollbackPatchFilesDir.getAbsolutePath() + "/" + element.attributeValue(ATTRIBUTE_PATH)), 
+			    	                    			new File(rollbackPatchFilesDir.getAbsolutePath() + "/" + addedFile.getPath()), 
 			    	                    			true);
 			    	                    	updatedRollbackFileList.add(targetFileOrDir);
 			    	                    }
@@ -640,7 +601,7 @@ public class JPatchManager
 			                    }
 		                    }
 	                    }
-	                }
+					}
 				}
 				
 				// ==================================================
@@ -654,68 +615,46 @@ public class JPatchManager
 						rollbackPatchFilesDir.mkdirs();
 					}
 					
-					Document rollbackPatchDocument = DocumentHelper.createDocument();
-					Element patchElement = rollbackPatchDocument.addElement(ELEMENT_PATCH);
-					patchElement.addElement(ELEMENT_ADDED_FILES);
-					patchElement.addElement(ELEMENT_UPDATED_FILES);
-					patchElement.addElement(ELEMENT_REMOVED_FILES);
-					patchElement.addElement(ELEMENT_ADDED_DIRECTORIES);
-					patchElement.addElement(ELEMENT_REMOVED_DIRECTORIES);
+					Patch rollbackPatch = new Patch();
 
 		            for(File addedRollbackFile : addedRollbackFileList)
 		            {
-		            	JPatchManager.addPathElement(
-		            			rollbackPatchDocument, 
-		            			ELEMENT_PATCH + "/" + ELEMENT_ADDED_FILES, 
-		            			ELEMENT_FILE, 
-		            			ATTRIBUTE_PATH, 
-		            			JPatchManager.getRelativePath(addedRollbackFile.getAbsolutePath(), targetRootDir.getAbsolutePath()));
+		            	JPatchManager.addAddedFile(
+		            			JPatchManager.getRelativePath(addedRollbackFile.getAbsolutePath(), targetRootDir.getAbsolutePath()), 
+		            			rollbackPatch);
 		            }
 					
 		            for(File updatedRollbackFile : updatedRollbackFileList)
 		            {
-		            	JPatchManager.addPathElement(
-		            			rollbackPatchDocument, 
-		            			ELEMENT_PATCH + "/" + ELEMENT_ADDED_FILES, 
-		            			ELEMENT_FILE, 
-		            			ATTRIBUTE_PATH, 
+		            	JPatchManager.addUpdatedFile(
 		            			JPatchManager.getRelativePath(updatedRollbackFile.getAbsolutePath(), targetRootDir.getAbsolutePath()), 
-		            			updatedRollbackFile.lastModified());
+		            			updatedRollbackFile.lastModified(),
+		            			rollbackPatch);
 		            }
 					
 		            for(File addedRollbackDir : addedRollbackDirList)
 		            {
-		            	JPatchManager.addPathElement(
-		            			rollbackPatchDocument, 
-		            			ELEMENT_PATCH + "/" + ELEMENT_ADDED_DIRECTORIES, 
-		            			ELEMENT_DIRECTORY, 
-		            			ATTRIBUTE_PATH, 
-		            			JPatchManager.getRelativePath(addedRollbackDir.getAbsolutePath(), targetRootDir.getAbsolutePath()));
+		            	JPatchManager.addAddedDirectory(
+		            			JPatchManager.getRelativePath(addedRollbackDir.getAbsolutePath(), targetRootDir.getAbsolutePath()),
+		            			rollbackPatch);
 		            }
 					
 		            for(File removedRollbackFile : removedRollbackFileList)
 		            {
-		            	JPatchManager.addPathElement(
-		            			rollbackPatchDocument, 
-		            			ELEMENT_PATCH + "/" + ELEMENT_REMOVED_FILES, 
-		            			ELEMENT_FILE, 
-		            			ATTRIBUTE_PATH, 
+		            	JPatchManager.addRemovedFile(
 		            			JPatchManager.getRelativePath(removedRollbackFile.getAbsolutePath(), targetRootDir.getAbsolutePath()), 
-		            			removedRollbackFile.lastModified());
+		            			removedRollbackFile.lastModified(),
+		            			rollbackPatch);
 		            }
 		            
 		            for(File removedRollbackDir : removedRollbackDirList)
 		            {
-		            	JPatchManager.addPathElement(
-		            			rollbackPatchDocument, 
-		            			ELEMENT_PATCH + "/" + ELEMENT_REMOVED_DIRECTORIES, 
-		            			ELEMENT_DIRECTORY, 
-		            			ATTRIBUTE_PATH, 
+		            	JPatchManager.addRemovedDirectory(
 		            			JPatchManager.getRelativePath(removedRollbackDir.getAbsolutePath(), targetRootDir.getAbsolutePath()), 
-		            			removedRollbackDir.lastModified());
+		            			removedRollbackDir.lastModified(),
+		            			rollbackPatch);
 		            }					
-					
-					JPatchManager.writeDocumentToFile(rollbackPatchDocument, rollbackPatchFile);
+					JPatchManager.patchJAXBMarshaller.marshal(rollbackPatch, rollbackPatchFile);
 				}
 			}
 		}
@@ -915,63 +854,144 @@ public class JPatchManager
 	    return checksum;
 	}
 	
-	private static void writeDocumentToFile(Document document, File file)
+	
+//	private static void writeDocumentToFile(Document document, File file)
+//	{
+//		if(document != null && file != null)
+//		{
+//			FileOutputStream fileOutputStream = null;
+//			try
+//			{
+//		        OutputFormat outformat = OutputFormat.createPrettyPrint();
+//		        outformat.setEncoding("UTF-8");
+//		        StringWriter stringWriter = new StringWriter();
+//		        XMLWriter xmlWriter = new XMLWriter(stringWriter, outformat);
+//		        xmlWriter.write(document);
+////		        xmlWriter.flush();
+//		        logger.debug(stringWriter.toString());
+//		        
+//		        fileOutputStream = new FileOutputStream(file);
+//		        XMLWriter fileWriter = new XMLWriter(fileOutputStream, outformat);
+//		        fileWriter.write(document);
+//		        fileWriter.flush();
+//			}
+//			catch(IOException ioe)
+//			{
+//			    ioe.printStackTrace();
+//			}
+//			finally
+//			{
+//			    if(fileOutputStream != null)
+//			    {
+//			        try
+//			        {
+//			            fileOutputStream.close();
+//			        }
+//			        catch(Exception e)
+//			        {
+//			            e.printStackTrace();
+//			        }
+//			    }
+//			}
+//		}
+//	}
+	
+	
+	private static Patch addAddedFile(String relativePath, Patch patch)
 	{
-		if(document != null && file != null)
+		if(StringUtils.isNotEmpty(relativePath) && patch != null)
 		{
-			FileOutputStream fileOutputStream = null;
-			try
+			Resource resource = new Resource();
+			resource.setPath(relativePath);
+			if(patch.getAddedFiles() == null)
 			{
-		        OutputFormat outformat = OutputFormat.createPrettyPrint();
-		        outformat.setEncoding("UTF-8");
-		        StringWriter stringWriter = new StringWriter();
-		        XMLWriter xmlWriter = new XMLWriter(stringWriter, outformat);
-		        xmlWriter.write(document);
-//		        xmlWriter.flush();
-		        logger.debug(stringWriter.toString());
-		        
-		        fileOutputStream = new FileOutputStream(file);
-		        XMLWriter fileWriter = new XMLWriter(fileOutputStream, outformat);
-		        fileWriter.write(document);
-		        fileWriter.flush();
+				patch.setAddedFiles(new AddedFiles());
 			}
-			catch(IOException ioe)
-			{
-			    ioe.printStackTrace();
-			}
-			finally
-			{
-			    if(fileOutputStream != null)
-			    {
-			        try
-			        {
-			            fileOutputStream.close();
-			        }
-			        catch(Exception e)
-			        {
-			            e.printStackTrace();
-			        }
-			    }
-			}
+			patch.getAddedFiles().getFiles().add(resource);
 		}
+		return patch;
 	}
 	
-	private static Document addPathElement(Document document, String parentNodePath, String element, String attribute, String relativePath)
+	private static Patch addUpdatedFile(String relativePath, long expectedLastModified, Patch patch)
 	{
-		if(document != null)
+		if(StringUtils.isNotEmpty(relativePath) && patch != null)
 		{
-	        ((Element)document.selectSingleNode(parentNodePath)).addElement(element).addAttribute(attribute, relativePath);
+			TimestampedResource resource = new TimestampedResource();
+			resource.setPath(relativePath);
+			resource.setExpectedLastModified(expectedLastModified);
+			if(patch.getUpdatedFiles() == null)
+			{
+				patch.setUpdatedFiles(new UpdatedFiles());
+			}
+			patch.getUpdatedFiles().getFiles().add(resource);
 		}
-		return document;
+		return patch;
 	}
-	private static Document addPathElement(Document document, String parentNodePath, String element, String attribute, String relativePath, long lastModifiedTimestamp)
+	
+	private static Patch addRemovedFile(String relativePath, long expectedLastModified, Patch patch)
 	{
-		if(document != null)
+		if(StringUtils.isNotEmpty(relativePath) && patch != null)
 		{
-	        ((Element)document.selectSingleNode(parentNodePath)).addElement(element).addAttribute(attribute, relativePath).addAttribute(ATTRIBUTE_EXPECTED_LAST_MODIFIED, String.valueOf(lastModifiedTimestamp));
+			TimestampedResource resource = new TimestampedResource();
+			resource.setPath(relativePath);
+			resource.setExpectedLastModified(expectedLastModified);
+			if(patch.getRemovedFiles() == null)
+			{
+				patch.setRemovedFiles(new RemovedFiles());
+			}
+			patch.getRemovedFiles().getFiles().add(resource);
 		}
-		return document;
+		return patch;
 	}
+	
+	private static Patch addAddedDirectory(String relativePath, Patch patch)
+	{
+		if(StringUtils.isNotEmpty(relativePath) && patch != null)
+		{
+			Resource resource = new Resource();
+			resource.setPath(relativePath);
+			if(patch.getAddedDirectories() == null)
+			{
+				patch.setAddedDirectories(new AddedDirectories());
+			}
+			patch.getAddedDirectories().getDirectories().add(resource);
+		}
+		return patch;
+	}
+	
+	private static Patch addRemovedDirectory(String relativePath, long expectedLastModified, Patch patch)
+	{
+		if(StringUtils.isNotEmpty(relativePath) && patch != null)
+		{
+			TimestampedResource resource = new TimestampedResource();
+			resource.setPath(relativePath);
+			resource.setExpectedLastModified(expectedLastModified);
+			if(patch.getRemovedDirectories() == null)
+			{
+				patch.setRemovedDirectories(new RemovedDirectories());
+			}
+			patch.getRemovedDirectories().getDirectories().add(resource);
+		}
+		return patch;
+	}
+	
+	
+//	private static Document addPathElement(Document document, String parentNodePath, String element, String attribute, String relativePath)
+//	{
+//		if(document != null)
+//		{
+//	        ((Element)document.selectSingleNode(parentNodePath)).addElement(element).addAttribute(attribute, relativePath);
+//		}
+//		return document;
+//	}
+//	private static Document addPathElement(Document document, String parentNodePath, String element, String attribute, String relativePath, long lastModifiedTimestamp)
+//	{
+//		if(document != null)
+//		{
+//	        ((Element)document.selectSingleNode(parentNodePath)).addElement(element).addAttribute(attribute, relativePath).addAttribute(ATTRIBUTE_EXPECTED_LAST_MODIFIED, String.valueOf(lastModifiedTimestamp));
+//		}
+//		return document;
+//	}
 	
 	
 	
